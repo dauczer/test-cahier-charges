@@ -7,12 +7,3 @@ font = "sans serif"
 
 [server]
 maxUploadSize = 200
-```
-
-## **Structure des fichiers**
-```
-mon-projet/
-├── app.py
-├── requirements.txt
-└── .streamlit/
-    └── config.toml
