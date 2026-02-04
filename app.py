@@ -5,7 +5,6 @@ import pandas as pd
 from datetime import datetime
 import io
 import base64
-from pypdf import PdfWriter, PdfReader
 
 # Configuration de la page
 st.set_page_config(
@@ -96,7 +95,7 @@ USECASES = {
     }
 }
 
-# Template HTML/CSS
+# Template HTML/CSS avec liens data URI
 HTML_TEMPLATE = """
 <!DOCTYPE html>
 <html>
@@ -206,6 +205,23 @@ HTML_TEMPLATE = """
             padding: 20px;
             margin: 20px 0;
             border-radius: 5px;
+            text-align: center;
+        }
+        
+        .download-link {
+            display: inline-block;
+            background-color: #27ae60;
+            color: white;
+            padding: 12px 30px;
+            text-decoration: none;
+            border-radius: 5px;
+            font-weight: 600;
+            font-size: 11pt;
+            margin-top: 10px;
+        }
+        
+        .download-link:hover {
+            background-color: #229954;
         }
         
         .template-info {
@@ -213,13 +229,6 @@ HTML_TEMPLATE = """
             font-size: 11pt;
             font-weight: 600;
             margin-bottom: 10px;
-        }
-        
-        .attachment-note {
-            color: #34495e;
-            font-size: 10pt;
-            font-style: italic;
-            margin-top: 8px;
         }
         
         .cover-page {
@@ -244,19 +253,6 @@ HTML_TEMPLATE = """
             margin-top: 100px;
             font-size: 11pt;
             color: #7f8c8d;
-        }
-        
-        .attachment-list {
-            background-color: #fff;
-            border-left: 4px solid #27ae60;
-            padding: 15px;
-            margin-top: 15px;
-        }
-        
-        .attachment-item {
-            padding: 8px 0;
-            color: #27ae60;
-            font-weight: 600;
         }
     </style>
 </head>
@@ -305,13 +301,12 @@ HTML_TEMPLATE = """
         </table>
         
         <div class="download-box">
-            <p class="template-info">📎 Template Excel inclus dans ce PDF</p>
-            <div class="attachment-list">
-                <div class="attachment-item">📥 {{ uc.template_file }}</div>
-            </div>
-            <p class="attachment-note">
-                Ce fichier est joint en tant que pièce jointe au PDF.<br>
-                Ouvrez le PDF avec Adobe Acrobat Reader pour extraire le fichier Excel.
+            <p class="template-info">📥 Template Excel disponible</p>
+            <a href="{{ uc.excel_data_uri }}" download="{{ uc.template_file }}" class="download-link">
+                ⬇️ Télécharger {{ uc.template_file }}
+            </a>
+            <p style="font-size: 9pt; color: #7f8c8d; margin-top: 15px;">
+                Cliquez sur le bouton ci-dessus pour télécharger le template Excel
             </p>
         </div>
     </div>
@@ -363,42 +358,37 @@ def generate_excel_template(uc_data):
     output.seek(0)
     return output.getvalue()
 
-def generate_pdf_with_attachments(selected_usecases):
-    """Génère le PDF du cahier des charges avec les fichiers Excel en pièces jointes"""
+def generate_pdf(selected_usecases):
+    """Génère le PDF du cahier des charges avec liens de téléchargement embarqués"""
+    
+    # Préparer les données avec data URIs pour les Excel
+    usecases_with_links = {}
+    for uc_id, uc_data in selected_usecases.items():
+        # Générer le fichier Excel
+        excel_bytes = generate_excel_template(uc_data)
+        
+        # Convertir en data URI (lien de téléchargement embarqué)
+        excel_base64 = base64.b64encode(excel_bytes).decode('utf-8')
+        data_uri = f"data:application/vnd.openxmlformats-officedocument.spreadsheetml.sheet;base64,{excel_base64}"
+        
+        # Ajouter le data URI aux données du use case
+        uc_copy = uc_data.copy()
+        uc_copy['excel_data_uri'] = data_uri
+        usecases_with_links[uc_id] = uc_copy
+    
     # Générer le HTML
     template_data = {
-        'usecases': selected_usecases,
+        'usecases': usecases_with_links,
         'date': datetime.now().strftime('%d/%m/%Y')
     }
     
     template = Template(HTML_TEMPLATE)
     html_content = template.render(**template_data)
     
-    # Générer le PDF de base
+    # Générer le PDF
     pdf_bytes = HTML(string=html_content).write_pdf()
     
-    # Créer un PDF avec les pièces jointes
-    pdf_reader = PdfReader(io.BytesIO(pdf_bytes))
-    pdf_writer = PdfWriter()
-    
-    # Copier toutes les pages
-    for page in pdf_reader.pages:
-        pdf_writer.add_page(page)
-    
-    # Ajouter les fichiers Excel en pièces jointes
-    for uc_id, uc_data in selected_usecases.items():
-        excel_bytes = generate_excel_template(uc_data)
-        pdf_writer.add_attachment(
-            uc_data['template_file'],
-            excel_bytes
-        )
-    
-    # Écrire le PDF final
-    output = io.BytesIO()
-    pdf_writer.write(output)
-    output.seek(0)
-    
-    return output.getvalue()
+    return pdf_bytes
 
 # Interface Streamlit
 st.title("📋 Générateur de Cahier des Charges")
@@ -424,18 +414,18 @@ st.markdown("---")
 if len(selected_usecases) > 0:
     st.success(f"✅ {len(selected_usecases)} use case(s) sélectionné(s)")
     
-    st.info("💡 Les templates Excel seront inclus comme pièces jointes dans le PDF. Utilisez Adobe Acrobat Reader pour les extraire.")
+    st.info("💡 Les templates Excel sont intégrés directement dans le PDF sous forme de liens cliquables. Cliquez simplement sur les boutons dans le PDF pour télécharger les fichiers.")
     
-    # Générer le PDF avec pièces jointes
-    with st.spinner("⏳ Génération du PDF avec templates Excel..."):
-        pdf_with_attachments = generate_pdf_with_attachments(selected_usecases)
+    # Générer le PDF avec liens embarqués
+    with st.spinner("⏳ Génération du PDF avec liens de téléchargement..."):
+        pdf_bytes = generate_pdf(selected_usecases)
     
     # Bouton de téléchargement direct
     filename = f"cahier_des_charges_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
     
     st.download_button(
-        label="🚀 Télécharger le Cahier des Charges (PDF avec Excel joints)",
-        data=pdf_with_attachments,
+        label="🚀 Télécharger le Cahier des Charges",
+        data=pdf_bytes,
         file_name=filename,
         mime="application/pdf",
         type="primary",
@@ -446,7 +436,7 @@ if len(selected_usecases) > 0:
     st.markdown(
         f"""
         <div style='background-color: #e8f4f8; padding: 15px; border-radius: 5px; border-left: 4px solid #3498db;'>
-        <strong>📎 Fichiers inclus dans le PDF :</strong><br>
+        <strong>📎 Templates Excel inclus (liens cliquables dans le PDF) :</strong><br>
         {'<br>'.join([f"• {uc['template_file']}" for uc in selected_usecases.values()])}
         </div>
         """,
@@ -461,7 +451,7 @@ st.markdown(
     """
     <div style='text-align: center; color: #7f8c8d; font-size: 0.9em;'>
     Générateur de Cahier des Charges - Version 2.0<br>
-    Templates Excel automatiquement intégrés au PDF
+    Templates Excel téléchargeables directement depuis le PDF
     </div>
     """,
     unsafe_allow_html=True
